@@ -351,12 +351,20 @@
     text-align: left;
   }
   .sug-btn:active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  /* POP-UP MODAL CỦA VÍ */
+  .wallet-row { display:flex; justify-content:space-between; align-items:center; padding:12px 0; border-bottom:1px solid rgba(124,106,255,0.1); }
+  .switch { position:relative; display:inline-block; width:44px; height:24px; }
+  .switch input { opacity:0; width:0; height:0; }
+  .slider { position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background-color:#333; border: 1px solid var(--border); transition:.3s; border-radius:24px; }
+  .slider:before { position:absolute; content:""; height:16px; width:16px; left:3px; bottom:3px; background-color:#aaa; transition:.3s; border-radius:50%; }
+  input:checked + .slider { background-color: var(--green); border-color: var(--green); }
+  input:checked + .slider:before { transform:translateX(20px); background-color: white; }
 </style>
 </head>
 <body>
 <div class="app">
 
-  <!-- HEADER -->
   <div class="header">
     <div class="header-avatar">💰</div>
     <div class="header-text">
@@ -369,16 +377,15 @@
     <div class="header-menu" onclick="clearChat()" title="Xóa lịch sử chat">🗑</div>
   </div>
 
-  <!-- QUICK ACTIONS -->
   <div class="quick-actions">
     <button class="qa-btn" onclick="quickSend('số dư các ví')">👛 Số dư ví</button>
     <button class="qa-btn" onclick="quickSend('hôm nay tiêu bao nhiêu')">📊 Hôm nay</button>
     <button class="qa-btn" onclick="quickSend('tuần này tiêu bao nhiêu')">📅 Tuần này</button>
     <button class="qa-btn" onclick="quickSend('tháng này tiêu bao nhiêu')">🗓 Tháng này</button>
     <button class="qa-btn" onclick="quickSend('xuất báo cáo excel tháng này')">📁 Xuất Excel</button>
+    <button class="qa-btn" onclick="quickSend('cài đặt ví')">⚙️ Cài đặt ví</button>
   </div>
 
-  <!-- CHAT -->
   <div class="chat" id="chat">
     <div class="empty-state" id="emptyState">
       <div class="empty-icon">💬</div>
@@ -393,7 +400,6 @@
     </div>
   </div>
 
-  <!-- INPUT -->
   <div class="input-area">
     <textarea
       class="input-box"
@@ -410,8 +416,20 @@
 
 </div>
 
+<div id="walletModal" style="display:none; position:fixed; z-index:9999; left:0; top:0; width:100%; height:100%; background-color:rgba(0,0,0,0.7); align-items:center; justify-content:center; backdrop-filter: blur(4px);">
+  <div style="background:#13131a; padding:20px; border-radius:18px; width:90%; max-width:360px; box-shadow:0 10px 30px rgba(0,0,0,0.5); border: 1px solid rgba(124,106,255,0.2); font-family:sans-serif; color: #f0eeff;">
+    <h3 style="margin-top:0; border-bottom:1px solid rgba(124,106,255,0.15); padding-bottom:12px; display:flex; justify-content:space-between; align-items:center; font-size:16px;">
+      <span>⚙️ Cài đặt Ẩn/Hiện Ví</span>
+      <span onclick="document.getElementById('walletModal').style.display='none'" style="cursor:pointer; font-size:24px; color:#5c5a78; line-height: 1;">&times;</span>
+    </h3>
+    <div id="modalWalletList" style="max-height:280px; overflow-y:auto; margin-bottom:15px; padding-right: 5px;">
+      </div>
+    <button onclick="document.getElementById('walletModal').style.display='none'" style="width:100%; padding:12px; background:linear-gradient(135deg, #7c6aff, #b06aff); color:white; border:none; border-radius:10px; font-weight:bold; cursor:pointer; font-size: 14px; box-shadow: 0 4px 15px rgba(124,106,255,0.3);">Xong</button>
+  </div>
+</div>
+
 <script>
-  // ⚠️ THAY LINK NÀY BẰNG LINK DEPLOY CỦA BẠN
+  // ⚠️ THAY LINK NÀY BẰNG LINK DEPLOY MỚI NHẤT CỦA BẠN (LINK .exec)
   const WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbxxuRXZMWkNDea4-NjNqLQtGAO3PbJWJ8RZRneS9dV4C1CI3IGTTkFWkVu4opqL9HXG/exec";
 
   const chat     = document.getElementById("chat");
@@ -458,6 +476,7 @@
     if (t) t.remove();
   }
 
+  // HÀM CHÍNH: GỬI TIN NHẮN CHAT & KIỂM TRA TÍN HIỆU MỞ POP-UP
   async function sendMessage() {
     const text = input.value.trim();
     if (!text) return;
@@ -469,11 +488,19 @@
     showTyping();
 
     try {
-      // Dùng GET + query string để tránh lỗi CORS với Apps Script
       const url = WEBHOOK_URL + "?message=" + encodeURIComponent(text);
       const res = await fetch(url, { method: "GET" });
       const data = await res.json();
       hideTyping();
+      
+      // 👉 KIỂM TRA XEM APPS SCRIPT CÓ TRẢ VỀ TÍN HIỆU MỞ MODAL KHÔNG
+      if (checkWalletModalResponse(data)) {
+        sendBtn.disabled = false;
+        input.focus();
+        return; // Nếu đúng là lệnh mở cài đặt ví, dừng tại đây và hiển thị Modal
+      }
+
+      // Ngược lại nếu là tin nhắn text bình thường thì hiển thị lên khung chat
       addMessage(data.reply || "Có lỗi xảy ra, thử lại nhé!", "bot");
     } catch (err) {
       hideTyping();
@@ -482,6 +509,57 @@
 
     sendBtn.disabled = false;
     input.focus();
+  }
+
+  // HÀM 1: KIỂM TRA DỮ LIỆU ĐỂ VẼ POP-UP LÊN MÀN HÌNH
+  function checkWalletModalResponse(response) {
+    if (response && response.type === "modal") {
+      // Bật khung pop-up đè lên giao diện chính
+      document.getElementById('walletModal').style.display = 'flex';
+      
+      const listDiv = document.getElementById('modalWalletList');
+      listDiv.innerHTML = ''; // Xóa sạch danh sách cũ
+      
+      // Quét qua danh sách các ví được trả về để vẽ công tắc gạt
+      response.wallets.forEach(wallet => {
+        const isChecked = wallet.status === 'có' ? 'checked' : '';
+        const row = document.createElement('div');
+        row.className = 'wallet-row';
+        row.innerHTML = `
+          <span style="font-weight:500; color:#f0eeff; font-size:14px;">${wallet.name}</span>
+          <label class="switch">
+            <input type="checkbox" ${isChecked} onchange="toggleWalletVisibilityGitHub('${wallet.name}', this.checked)">
+            <span class="slider"></span>
+          </label>
+        `;
+        listDiv.appendChild(row);
+      });
+      return true; // Xác nhận đã xử lý mở modal thành công
+    }
+    return false; // Dữ liệu text thông thường
+  }
+
+  // HÀM 2: GỬI LỆNH GẠT CÔNG TẮC NGẦM VỀ CHO GOOGLE SHEET QUA PHƯƠNG THỨC POST
+  function toggleWalletVisibilityGitHub(walletName, isChecked) {
+    const statusText = isChecked ? "Có" : "Không";
+    
+    // Gửi yêu cầu POST ngầm về để Apps Script xử lý đổi cột G trên Sheet
+    fetch(WEBHOOK_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain" // Giữ text/plain để tránh lỗi CORS Preflight
+      },
+      body: JSON.stringify({
+        action: "update_visibility",
+        walletName: walletName,
+        statusText: statusText
+      })
+    })
+    .then(res => res.json())
+    .then(data => {
+      console.log("Đã cập nhật ví " + walletName + " thành: " + statusText);
+    })
+    .catch(err => console.error("Lỗi cập nhật nút gạt:", err));
   }
 
   function quickSend(text) {
@@ -501,11 +579,12 @@
     el.style.height = Math.min(el.scrollHeight, 120) + "px";
   }
 
+  // Hàm xóa lịch sử trên màn hình
   function clearChat() {
     if (!confirm("Xóa lịch sử chat? (Dữ liệu trong Sheets vẫn giữ nguyên)")) return;
     const msgs = chat.querySelectorAll(".msg-wrap, .date-divider");
     msgs.forEach(m => m.remove());
-    emptyState.style.display = "flex";
+    if (emptyState) emptyState.style.display = "flex";
   }
 </script>
 </body>
